@@ -1,0 +1,16 @@
+# Table of contents
+
+* [NestJS DDD Cookbook](README.md)
+* [1. When to Use This Architecture](01-getting-started.md)
+* [2. Project Structure & Module Anatomy](02-project-structure.md)
+* [3. Domain Layer - Business Logic](03-domain-layer.md)
+* [4. Application Layer - Use Cases & Ports](04-application-layer.md)
+* [5. Infrastructure Layer - Adapters & NestJS Integration](05-infrastructure-layer.md)
+* [6. Presentation Layer - Controllers, DTOs & HTTP](06-presentation-layer.md)
+* [7. Shared Kernel - Common Reusable Components](07-shared-kernel.md)
+* [8. Testing Strategy](08-testing.md)
+* [9. Implementation Cookbook - Practical Recipes](09-recipes.md)
+* [10. Decision Matrices - When to Use What](10-decision-matrices.md)
+* [11. Common Pitfalls - Mistakes to Avoid](11-common-pitfalls.md)
+* [12. Execution Flow Diagrams](12-execution-flows.md)
+* [13. Domain Services and Use Cases - Orchestration Patterns](13-domain-services-and-use-cases.md)
