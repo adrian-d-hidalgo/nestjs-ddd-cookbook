@@ -16,14 +16,36 @@ shared-kernel/
 │   ├── value-objects/   # Universal VOs (Email, UUID, Money)
 │   ├── events/          # DomainEvent interface, AggregateRoot
 │   └── exceptions/      # DomainException, InvalidArgumentException
-├── utils/               # ONLY pure functions (no external deps)
-│   ├── invariants/      # ensure(), guard(), assert()
-│   └── functional/      # Pure helpers for domain logic
-└── libs/                # ONLY if no technical deps/side effects
+└── utils/               # ONLY pure functions (no external deps)
+    ├── invariants/      # ensure(), guard(), assert()
+    └── functional/      # Pure helpers for domain logic
 ```
 
-### ✅ Includes
+### Content Policy: Allowed vs Forbidden
 
+| Category | ✅ Allowed in `shared-kernel/` | ❌ Forbidden (goes to `common/`) |
+|----------|-------------------------------|----------------------------------|
+| **Value Objects** | Universal VOs: `Email`, `UUID`, `Money`, `PhoneNumber`, `Currency` | VOs specific to single BC |
+| **Domain Events** | `DomainEvent` interface, `AggregateRoot` base class | Concrete event implementations (go to BC's `domain/events/`) |
+| **Exceptions** | `DomainException`, `InvalidArgumentException` | Framework exceptions (HTTP, validation) |
+| **Utilities** | Pure functions: `ensure()`, `guard()`, `assert()` | Functions with I/O, network, filesystem, time |
+| **Calculations** | Pure math/business calculations (deterministic) | Calculations requiring external data/APIs |
+| **Parsers** | Pure parsers/formatters for VOs (RFC, NIF) | Parsers requiring I/O or network calls |
+| **Functional** | Immutable helpers, pure transformations | Stateful helpers, side effects |
+| **Dependencies** | Zero external dependencies | NestJS, Express, Prisma, Axios, any framework |
+| **Side Effects** | None (referentially transparent) | I/O, database, HTTP, filesystem, time, random |
+| **Ports** | None | Technical ports like `UnitOfWork`, `EventPublisher`, `Clock` → `common/application/ports/` |
+| **Adapters** | None | All adapters → `common/infrastructure/` |
+| **Presentation** | None | Filters, interceptors, pipes, guards → `common/presentation/` |
+| **Entities** | Only abstract base (`AggregateRoot`) | Concrete entities → BC's `domain/entities/` |
+| **Domain Services** | Universal & stable domain services (rare!) | BC-specific domain services → BC's `domain/services/` |
+| **Use Cases** | None | All use cases → BC's `application/use-cases/` |
+
+---
+
+### Detailed Rules
+
+**✅ ALLOWED:**
 - **Universal Value Objects**: `Email`, `UUID`, `Money`, `Currency`, `PhoneNumber` (validated, immutable)
 - **Domain Events base**: `DomainEvent` interface, `AggregateRoot` base class
 - **Domain Exceptions**: `DomainException`, `InvalidArgumentException`
@@ -31,10 +53,8 @@ shared-kernel/
 - **Pure business calculations**: Mathematical or domain-specific pure functions
 - **Pure parsers/formatters**: For VOs semantic validation (e.g., RFC/NIF parsing) - **NO I/O**
 - **Pure functional helpers**: Used by domain logic (immutable, no side effects)
-- **Pure libraries**: Only if they introduce **no technical dependencies**, mutability, or side effects
 
-### ❌ Does NOT Include
-
+**❌ FORBIDDEN:**
 - **Framework dependencies** (NestJS, Express, decorators like `@Injectable`)
 - **Any I/O operations** (filesystem, network, database)
 - **System time/random** (use `Clock` port from `common/application` instead)

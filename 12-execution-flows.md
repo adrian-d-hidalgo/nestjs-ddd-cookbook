@@ -220,6 +220,257 @@ private toDomain(data: PrismaUser): User {
 
 ---
 
+## 10.4 Outbox Pattern Flow
+
+This diagram shows the complete flow of the Outbox pattern for reliable event publishing:
+
+```mermaid
+sequenceDiagram
+    participant UC as Use Case
+    participant AGG as Aggregate
+    participant TX as Transaction
+    participant User as users Table
+    participant Outbox as outbox Table
+    participant Worker as Publisher Worker
+    participant Kafka as Event Bus
+    participant Sub as Event Subscriber
+
+    Note over UC,Sub: WRITE PATH (Transactional)
+
+    UC->>AGG: Load/Create aggregate
+    UC->>AGG: Execute business logic
+    AGG->>AGG: record(DomainEvent)
+    Note over AGG: events: [UserCreated]
+
+    UC->>TX: BEGIN TRANSACTION
+    UC->>AGG: pullEvents()
+    AGG-->>UC: [DomainEvent]
+
+    UC->>User: INSERT user data
+    UC->>Outbox: INSERT events
+    Note over Outbox: {<br/>  eventName: "user.domain.created",<br/>  payload: {...},<br/>  published: false<br/>}
+
+    UC->>TX: COMMIT
+    Note over TX,Outbox: ✅ Atomic: State + Events
+
+    Note over UC,Sub: PUBLISH PATH (Asynchronous)
+
+    loop Every 100ms
+        Worker->>Outbox: SELECT WHERE published=false
+        Outbox-->>Worker: [unpublished events]
+
+        alt Event publish succeeds
+            Worker->>Kafka: publish(event)
+            Kafka-->>Worker: ACK
+            Worker->>Outbox: UPDATE published=true
+            Kafka->>Sub: Deliver event
+            Sub->>Sub: Handle event
+        else Event publish fails
+            Worker->>Outbox: UPDATE attempts+1,<br/>nextAttemptAt (backoff)
+            Note over Worker: Retry with<br/>exponential backoff
+        end
+    end
+```
+
+**Key guarantees:**
+1. **Atomicity**: User state and events committed together (same TX)
+2. **Durability**: Events persisted before publishing
+3. **Reliability**: Worker retries failed publishes with backoff
+4. **Ordering**: Events published in occurrence order (ORDER BY occurredAt)
+
+---
+
+## 10.5 Saga Orchestration Flow (with Compensation)
+
+This diagram shows a Saga handling a multi-bounded-context transaction with failure compensation:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant OrderBC as Order BC
+    participant Saga as CreateOrderSaga
+    participant PaymentBC as Payment BC
+    participant InventoryBC as Inventory BC
+    participant EmailBC as Email BC
+
+    Note over Client,EmailBC: HAPPY PATH
+
+    Client->>OrderBC: POST /orders
+    OrderBC->>OrderBC: Create Order (pending)
+    OrderBC->>Saga: Start saga
+
+    Saga->>PaymentBC: ChargePayment
+    PaymentBC-->>Saga: ✅ paymentId: "pay_123"
+    Note over Saga: Push RefundPayment<br/>to compensation stack
+
+    Saga->>InventoryBC: ReserveInventory
+    InventoryBC-->>Saga: ✅ reservationId: "res_456"
+    Note over Saga: Push ReleaseInventory<br/>to compensation stack
+
+    Saga->>EmailBC: SendConfirmation
+    EmailBC-->>Saga: ✅ Email sent
+
+    Saga->>OrderBC: Mark order as completed
+    OrderBC-->>Client: 200 OK
+
+    Note over Client,EmailBC: FAILURE PATH (Compensation)
+
+    Client->>OrderBC: POST /orders (different order)
+    OrderBC->>OrderBC: Create Order (pending)
+    OrderBC->>Saga: Start saga
+
+    Saga->>PaymentBC: ChargePayment
+    PaymentBC-->>Saga: ✅ paymentId: "pay_789"
+    Note over Saga: Push RefundPayment<br/>to compensation stack
+
+    Saga->>InventoryBC: ReserveInventory
+    InventoryBC-->>Saga: ❌ Out of stock
+    Note over Saga: Saga failed,<br/>start compensation
+
+    Saga->>Saga: Pop compensation stack
+    Saga->>PaymentBC: RefundPayment("pay_789")
+    PaymentBC-->>Saga: ✅ Refunded
+
+    Saga->>OrderBC: Mark order as failed
+    OrderBC-->>Client: 409 Conflict (Out of stock)
+```
+
+**Key principles:**
+1. **Compensation Stack**: Each successful step pushes compensation to stack (LIFO)
+2. **Forward Recovery**: Try to complete; if fail, compensate in reverse order
+3. **Idempotency**: Compensations must be idempotent (can be called multiple times)
+4. **Eventual Consistency**: Order may temporarily be in "pending" state
+
+**Saga State Transitions:**
+```
+PENDING → IN_PROGRESS → COMPLETED (happy path)
+                      → COMPENSATING → FAILED (error path)
+```
+
+---
+
+## 10.6 UnitOfWork Pattern Flow
+
+This diagram shows how UnitOfWork coordinates multiple repository operations in a single transaction:
+
+```mermaid
+sequenceDiagram
+    participant UC as Use Case
+    participant UoW as UnitOfWork
+    participant UserRepo as UserRepository
+    participant OrderRepo as OrderRepository
+    participant Prisma as Prisma Client
+    participant DB as PostgreSQL
+
+    UC->>UoW: begin()
+    UoW->>Prisma: prisma.$transaction()
+    Prisma-->>UoW: Transactional client (tx)
+
+    UC->>UserRepo: save(user)
+    UserRepo->>UoW: getTransaction()
+    UoW-->>UserRepo: tx
+    UserRepo->>Prisma: tx.user.update(...)
+    Prisma->>DB: UPDATE users...
+    DB-->>Prisma: Updated
+
+    UC->>OrderRepo: save(order)
+    OrderRepo->>UoW: getTransaction()
+    UoW-->>OrderRepo: tx
+    OrderRepo->>Prisma: tx.order.create(...)
+    Prisma->>DB: INSERT INTO orders...
+    DB-->>Prisma: Created
+
+    alt Commit succeeds
+        UC->>UoW: commit()
+        UoW->>Prisma: COMMIT
+        Prisma->>DB: COMMIT TRANSACTION
+        DB-->>Prisma: ✅ Committed
+        UoW-->>UC: Success
+    else Commit fails
+        UC->>UoW: rollback()
+        UoW->>Prisma: ROLLBACK
+        Prisma->>DB: ROLLBACK TRANSACTION
+        DB-->>Prisma: ✅ Rolled back
+        UoW-->>UC: Error
+    end
+```
+
+**Key benefits:**
+1. **Single Transaction**: Multiple repositories share the same DB transaction
+2. **Consistency**: All-or-nothing commit across multiple aggregates
+3. **Performance**: Batch operations in single roundtrip
+
+**Code example:**
+```typescript
+async execute(input: CreateOrderInput) {
+  await this.unitOfWork.begin();
+
+  try {
+    const user = await this.userRepo.findById(input.userId);
+    user.incrementOrderCount();
+    await this.userRepo.save(user);
+
+    const order = Order.create(input);
+    await this.orderRepo.save(order);
+
+    await this.unitOfWork.commit();
+  } catch (error) {
+    await this.unitOfWork.rollback();
+    throw error;
+  }
+}
+```
+
+---
+
+## 10.7 Cross-BC Communication Flow (Event-Driven)
+
+This diagram shows how bounded contexts communicate asynchronously via domain events:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant UserBC as User BC<br/>(Supporting)
+    participant Outbox as outbox Table
+    participant EventBus as Event Bus
+    participant NotifBC as Notification BC<br/>(Supporting)
+    participant BillingBC as Billing BC<br/>(Supporting)
+
+    Client->>UserBC: POST /users (create user)
+
+    UserBC->>UserBC: User.create()
+    Note over UserBC: Record UserCreatedEvent
+
+    UserBC->>Outbox: Save user + events (TX)
+    Note over Outbox: ✅ Atomic commit
+
+    UserBC-->>Client: 201 Created
+
+    Note over Outbox,BillingBC: Asynchronous Event Processing
+
+    Outbox->>EventBus: Publish UserCreatedEvent
+
+    par Parallel Event Handling
+        EventBus->>NotifBC: UserCreatedEvent
+        NotifBC->>NotifBC: Send welcome email
+        NotifBC-->>EventBus: Done
+    and
+        EventBus->>BillingBC: UserCreatedEvent
+        BillingBC->>BillingBC: Create free subscription
+        BillingBC-->>EventBus: Done
+    end
+
+    Note over NotifBC,BillingBC: Both BCs react independently
+```
+
+**Key characteristics:**
+1. **Decoupling**: User BC doesn't know about Notification/Billing BCs
+2. **Async**: Event handling doesn't block user creation response
+3. **Independence**: Each BC processes events at its own pace
+4. **Scalability**: Multiple subscribers can handle same event
+
+---
+
 ## Navigation
 
-[← Previous: Common Pitfalls](11-common-pitfalls.md) | [Index](README.md)
+[← Previous: Common Pitfalls](11-common-pitfalls.md) | [Index](README.md) | [Next: Domain Services & Use Cases](13-domain-services-and-use-cases.md)

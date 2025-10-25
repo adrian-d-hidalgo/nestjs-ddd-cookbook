@@ -234,4 +234,248 @@ Does the logic involve:
 
 ---
 
+## 4.6 Repository Choice Matrix
+
+| Criteria | Prisma | TypeORM | Raw SQL (pg/mysql2) |
+|----------|--------|---------|---------------------|
+| **Type Safety** | ⭐⭐⭐ Excellent | ⭐⭐ Good | ⭐ Manual types |
+| **DX (DevEx)** | ⭐⭐⭐ Best-in-class | ⭐⭐ Good | ⭐ Verbose |
+| **Performance** | ⭐⭐ Good (N+1 watch) | ⭐⭐ Good | ⭐⭐⭐ Best control |
+| **Migrations** | ⭐⭐⭐ Auto-generated | ⭐⭐⭐ TypeScript-based | ⭐ Manual |
+| **Learning Curve** | ⭐⭐⭐ Easy | ⭐⭐ Moderate | ⭐ Steep |
+| **Raw Query Support** | ⭐⭐⭐ `$queryRaw` | ⭐⭐⭐ `query()` | ⭐⭐⭐ Native |
+| **Ecosystem** | ⭐⭐⭐ Growing fast | ⭐⭐⭐ Mature | ⭐ DIY |
+| **Team Onboarding** | ⭐⭐⭐ Fast | ⭐⭐ Moderate | ⭐ Slow |
+
+**Decision Tree:**
+
+```
+Team Skill Level?
+├─ Junior/Mixed → Prisma (best DX)
+├─ Senior → TypeORM (flexibility)
+└─ High-performance needs → Raw SQL (full control)
+
+Migration Strategy?
+├─ Auto-generated → Prisma
+├─ Code-first migrations → TypeORM
+└─ Manual control → Raw SQL
+
+Greenfield vs Legacy?
+├─ Greenfield → Prisma (modern)
+├─ Existing TypeORM → Keep TypeORM (avoid migration cost)
+└─ Legacy DB schema → Raw SQL (complex mappings)
+```
+
+**Migration Path:**
+- Prisma ↔ TypeORM: Moderate effort (repository layer only)
+- Any ORM → Raw SQL: High effort (lose abstraction)
+- Raw SQL → ORM: High effort (schema modeling)
+
+---
+
+## 4.7 Event Handling Strategy Matrix
+
+| Scenario | Pattern | When to Use | Trade-offs |
+|----------|---------|-------------|------------|
+| **MVP / Single BC** | In-memory EventBus | - Prototyping<br/>- Single bounded context<br/>- Low event volume | ✅ Simple<br/>❌ Events can be lost<br/>❌ No replay |
+| **Reliability Needed** | Outbox Pattern | - Events must not be lost<br/>- Transaction + events atomic<br/>- Scale-up phase | ✅ Guaranteed delivery<br/>✅ Transactional<br/>❌ Added complexity |
+| **Idempotency Needed** | Inbox Pattern | - Events can be duplicated<br/>- At-least-once delivery<br/>- Multiple consumers | ✅ Idempotent handlers<br/>✅ Duplicate protection<br/>❌ Storage overhead |
+| **Multi-BC Transactions** | Saga Orchestration | - Cross-BC operations<br/>- Compensations required<br/>- Complex workflows | ✅ Consistency<br/>✅ Compensating actions<br/>❌ High complexity |
+| **High Volume** | Outbox + Message Broker | - >1000 events/sec<br/>- Async processing<br/>- Multiple consumers | ✅ Scalable<br/>✅ Decoupled<br/>❌ Operational overhead |
+
+**Decision Tree:**
+
+```
+Event Volume?
+├─ <100/sec, Single BC → In-memory EventBus
+├─ >100/sec, Multi-BC → Outbox + Message Broker (Kafka/NATS)
+└─ >1000/sec → Outbox + Kafka + Worker Pool
+
+Can Events be Lost?
+├─ No → Outbox Pattern (transactional)
+└─ Yes (monitoring, analytics) → In-memory
+
+Can Events be Duplicated?
+├─ No → Inbox Pattern (idempotency)
+└─ Yes (idempotent handlers) → No Inbox needed
+
+Cross-BC Coordination?
+├─ Yes → Saga Orchestration
+└─ No → Simple event handlers
+```
+
+**Migration Path:**
+1. **Start:** In-memory EventBus (MVP)
+2. **Add reliability:** Outbox table + Publisher worker
+3. **Add idempotency:** Inbox table + checks in handlers
+4. **Add orchestration:** Saga orchestrators for multi-BC flows
+5. **Scale:** Replace in-memory with Kafka/NATS broker
+
+---
+
+## 4.8 Authentication & Authorization Strategy
+
+| Aspect | Generic (IdP Adapter) | Supporting (Internal IAM) |
+|--------|----------------------|---------------------------|
+| **When to Use** | - Standard OIDC/OAuth2<br/>- No custom flows<br/>- Multi-tenant SaaS<br/>- SSO required | - Complex policies (ABAC)<br/>- Custom workflows<br/>- Fine-grained permissions<br/>- Business rules in authz |
+| **Examples** | Auth0, Cognito, Keycloak, Okta | Custom RBAC/ABAC system |
+| **Classification** | **Generic** subdomain | **Supporting** subdomain |
+| **Investment** | 5-10% (thin adapter) | 20-30% (build in-house) |
+| **Control** | Low (vendor-controlled) | High (full control) |
+| **Cost** | Pay per user (variable) | Fixed infra cost |
+| **Maintenance** | Vendor handles | Team maintains |
+| **Custom Policies** | Limited (hooks, rules) | Unlimited (code) |
+
+**Decision Tree:**
+
+```
+Auth Requirements?
+├─ Standard OIDC/OAuth2 only?
+│  └─ Yes → Generic (Auth0/Cognito)
+├─ Custom business rules in authz?
+│  └─ Yes → Supporting (internal IAM)
+├─ Need fine-grained permissions (resource-level)?
+│  └─ Yes → Supporting (ABAC system)
+└─ SSO + basic roles only?
+   └─ Yes → Generic (Keycloak/Okta)
+
+Team Capability?
+├─ Small team, limited security expertise → Generic (IdP)
+├─ Large team, security-critical → Supporting (internal)
+└─ Hybrid (authn generic, authz internal) → Both!
+```
+
+**Folder Structure:**
+
+```
+# Generic - IdP Adapter
+generic/
+└── idp-adapter/              # Generic subdomain
+    ├── domain/               # Minimal (User token VO)
+    ├── application/
+    │   └── use-cases/
+    │       └── verify-token.use-case.ts
+    └── infrastructure/
+        └── adapters/
+            ├── auth0-adapter.ts
+            ├── cognito-adapter.ts
+            └── keycloak-adapter.ts
+
+# Supporting - Internal IAM
+supporting/
+└── iam/                      # Bounded context
+    ├── authn/                # Subdomain: login, MFA, sessions
+    ├── authz/                # Subdomain: permissions, roles, policies
+    │   ├── domain/
+    │   │   ├── entities/
+    │   │   │   ├── role.entity.ts
+    │   │   │   └── permission.entity.ts
+    │   │   └── services/
+    │   │       └── policy-evaluation.service.ts
+    │   └── application/
+    │       └── use-cases/
+    │           ├── check.use-case.ts
+    │           └── assign-role.use-case.ts
+    └── user/                 # Subdomain: user management
+```
+
+---
+
+## 4.9 Mailing Strategy
+
+| Aspect | Generic (mail-driver) | Supporting (campaign-delivery) |
+|--------|-----------------------|-------------------------------|
+| **Purpose** | Send transactional emails | Orchestrate campaigns |
+| **Classification** | **Generic** subdomain | **Supporting** subdomain |
+| **Responsibility** | - Adapter to email service<br/>- Send single email<br/>- Handle API credentials | - When to send (triggers)<br/>- What to send (templates)<br/>- Whom to send (segments)<br/>- Throttling, retries<br/>- A/B testing<br/>- Bounce handling |
+| **Investment** | 5-10% (thin wrapper) | 20-30% (business logic) |
+| **Examples** | SendGrid adapter, SES adapter | Campaign scheduler, segmentation |
+
+**Decision Tree:**
+
+```
+Mailing Complexity?
+├─ Simple transactional emails only?
+│  └─ Generic only (mail-driver)
+├─ Complex campaigns, A/B testing, segmentation?
+│  └─ Supporting (campaign-delivery) + Generic (mail-driver)
+└─ User-defined templates, scheduling?
+   └─ Supporting (campaign-delivery)
+
+Business Logic?
+├─ Just send email when told → Generic
+├─ When/what/whom logic → Supporting
+└─ Throttling, retries, bounce handling → Supporting
+```
+
+**Folder Structure:**
+
+```
+# Generic - Mail Driver
+generic/
+└── mail-driver/              # Generic subdomain
+    ├── domain/               # Minimal (Email VO)
+    ├── application/
+    │   └── ports/
+    │       └── for-sending-mail.port.ts
+    └── infrastructure/
+        └── adapters/
+            ├── sendgrid-adapter.ts
+            ├── ses-adapter.ts
+            └── mailgun-adapter.ts
+
+# Supporting - Campaign Delivery
+supporting/
+└── campaign-delivery/        # Supporting subdomain
+    ├── domain/
+    │   ├── entities/
+    │   │   ├── campaign.entity.ts
+    │   │   └── segment.entity.ts
+    │   └── services/
+    │       └── throttling-policy.service.ts
+    ├── application/
+    │   ├── use-cases/
+    │   │   ├── schedule-campaign.use-case.ts
+    │   │   └── send-batch.use-case.ts
+    │   └── subscribers/
+    │       └── user-created.subscriber.ts
+    │           # Listens to UserCreated event
+    │           # Calls mail-driver to send welcome email
+    └── infrastructure/
+        └── adapters/
+            └── mail-driver-client.ts
+                # Uses mail-driver port
+```
+
+**Usage Example:**
+
+```typescript
+// Supporting - campaign-delivery listens to events
+@Injectable()
+export class UserCreatedSubscriber {
+  constructor(
+    @Inject(FOR_SENDING_MAIL)
+    private readonly mailDriver: ForSendingMail, // Generic port
+    private readonly templateRepo: TemplateRepository,
+  ) {}
+
+  async handle(event: UserCreatedEvent) {
+    // Supporting logic: decide what/when/whom
+    const template = await this.templateRepo.find('welcome');
+    const shouldSend = this.canSendTo(event.userCountry);
+
+    if (shouldSend) {
+      // Generic: just send
+      await this.mailDriver.send({
+        to: event.email,
+        subject: template.subject,
+        body: template.render({ name: event.name }),
+      });
+    }
+  }
+}
+```
+
+---
+
 **Navigation:** [Previous: Recipes](./09-recipes.md) | [Up](../NESTJS_DDD_COOKBOOK.md) | [Next: Common Pitfalls](./11-common-pitfalls.md)

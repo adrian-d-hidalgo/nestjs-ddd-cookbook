@@ -41,10 +41,12 @@ This cookbook is divided into focused sections for easy navigation:
 
 ### Advanced Topics
 - **[13. Domain Services & Use Cases](./13-domain-services-and-use-cases.md)** - Orchestration patterns and responsibilities
+- **[14. Advanced Patterns](./14-advanced-patterns.md)** - Outbox, Inbox, Sagas for production-grade event handling
 
-### Troubleshooting
+### Troubleshooting & Quality
 - **[11. Common Pitfalls](./11-common-pitfalls.md)** - Mistakes to avoid with solutions
-- **[12. Execution Flows](./12-execution-flows.md)** - Diagrams showing request flows
+- **[12. Execution Flows](./12-execution-flows.md)** - Diagrams showing request flows (HTTP, Events, Outbox, Sagas)
+- **[15. Implementation Checklist](./15-implementation-checklist.md)** - Complete compliance verification for modules
 
 ---
 
@@ -65,15 +67,17 @@ This cookbook is divided into focused sections for easy navigation:
 2. Review [Execution Flows](./12-execution-flows.md) to understand the flow
 3. Consult [Testing Strategy](./08-testing.md) for testing patterns
 
+**Reviewing code quality?**
+1. Use [Implementation Checklist](./15-implementation-checklist.md) to verify 100% compliance
+2. Run automated audit commands to detect violations
+3. Follow the migration plan to fix non-compliant modules
+
 ---
 
 ## 📖 Reference
 
-For theoretical foundations and architectural patterns, see:
-- [Hexagonal Architecture Theory](../../architecture/HEXAGONAL_ARCHITECTURE.md)
-- [Code Standards](../../guidelines/CODE_STANDARDS.md)
-- [Testing Strategy](../../guidelines/TESTING_STRATEGY.md)
-- [Design Principles](../../guidelines/DESIGN_PRINCIPLES.md)
+**Conceptual Foundations:**
+- [Domain-Driven Design (Conceptual Book)](https://github.com/adrian-d-hidalgo/domain-driven-design) - Technology-agnostic DDD theory, patterns, and strategic design
 
 ---
 

@@ -66,7 +66,7 @@ src/supporting/
     │   ├── domain/
     │   ├── application/
     │   └── infrastructure/
-    └── authentication/     # Subdomain
+    └── authn/              # Subdomain
         ├── domain/
         ├── application/
         └── infrastructure/
@@ -74,11 +74,20 @@ src/supporting/
 
 ## Strategic Classification
 
-| Type           | Investment | Strategy                              | Examples                            |
-| -------------- | ---------- | ------------------------------------- | ----------------------------------- |
-| **Core**       | 60-70%     | Custom-built, best team, high quality | Business-critical modules           |
-| **Supporting** | 20-30%     | Build in-house, good quality          | user/, notification/, file-storage/ |
-| **Generic**    | 5-10%      | Buy/SaaS/OSS, minimal customization   | health/, setup/                     |
+| Type           | Investment | Strategy                                  | Purpose                                  | Fresh Examples                                                                                                                                                                                 |
+| -------------- | ---------- | ----------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core**       | 60-70%     | Custom-built, best team, full DDD & tests | Competitive advantage                    | `journey-orchestrator/`, `real-time-bidding/`, `recommendation-engine/`, `pricing-optimizer/`, `creative-personalization/`, `audience-segmentation/`                                           |
+| **Supporting** | 20-30%     | Build in-house, modular, reliable         | Enables Core; carries business semantics | `account/` (user/org/tenancy), `permissions/` (RBAC/ABAC), `billing/` (plans/quotas), `notification/` (cross-channel), `file-storage/` (driver strategy), `campaign-delivery/`, `data-import/` |
+| **Generic**    | 5-10%      | Buy/SaaS/OSS, minimal customization       | Commodity                                | `mail-driver/` (SES/SendGrid), `idp-adapter/` (Auth0/Cognito), `observability/`, `health/`, `metrics/`, `telemetry/`, `cdn-adapter/`, `pdf-renderer-adapter/`                                  |
+
+**Mailing split:**
+- **Generic**: `mail-driver/` thin adapters (SendGrid, SES, Mailgun)
+- **Supporting**: `campaign-delivery/` (when/what/whom, templates, throttling, A/B, retries), consumes domain events
+
+**Quick checklist:**
+1. Unique business logic? → Core
+2. Enables Core with rules/timing/policies? → Supporting
+3. Swappable by SaaS w/o losing value? → Generic
 
 ## Shared Kernel vs Common
 
@@ -198,6 +207,149 @@ src/core/[module-name]/
 | `*.controller.spec.ts`     | Controller E2E tests             | Test HTTP flow end-to-end                  |
 | `*.dto.ts`                 | HTTP request/response            | class-validator decorators                 |
 | `*.module.ts`              | Wire dependencies                | Providers, imports, exports                |
+
+## TypeScript Path Aliases
+
+Configure path aliases in `tsconfig.json` for cleaner imports and enforced boundaries:
+
+```json
+{
+  "compilerOptions": {
+    "baseUrl": "src",
+    "paths": {
+      "@kernel/*": ["shared-kernel/*"],
+      "@common/app/*": ["common/application/*"],
+      "@common/infra/*": ["common/infrastructure/*"],
+      "@common/pres/*": ["common/presentation/*"],
+      "@common/utils/*": ["common/utils/*"],
+      "@core/*": ["core/*"],
+      "@supporting/*": ["supporting/*"],
+      "@generic/*": ["generic/*"]
+    }
+  }
+}
+```
+
+**Import conventions:**
+- Domain → only `@kernel/*`
+- UseCases → `@kernel/*` + `@common/app/*`
+- Adapters → may use `@common/infra/*`
+- Presentation (global) → `@common/pres/*`
+
+**Examples:**
+```typescript
+// ✅ GOOD - Using aliases
+import { Email } from '@kernel/domain/value-objects/email.vo';
+import { UnitOfWork } from '@common/app/ports/unit-of-work.port';
+import { PrismaUnitOfWork } from '@common/infra/persistence/prisma-unit-of-work';
+
+// ❌ BAD - Relative paths
+import { Email } from '../../../../shared-kernel/domain/value-objects/email.vo';
+```
+
+---
+
+## ESLint Boundaries (Guardrails)
+
+Enforce architectural boundaries using `eslint-plugin-boundaries`:
+
+**Install:**
+```bash
+npm install --save-dev eslint-plugin-boundaries
+```
+
+**Configure `.eslintrc.json`:**
+```json
+{
+  "plugins": ["boundaries"],
+  "extends": ["plugin:boundaries/recommended"],
+  "settings": {
+    "boundaries/elements": [
+      {
+        "type": "shared-kernel",
+        "pattern": "shared-kernel/**/*",
+        "mode": "file"
+      },
+      {
+        "type": "common-app",
+        "pattern": "common/application/**/*",
+        "mode": "file"
+      },
+      {
+        "type": "common-infra",
+        "pattern": "common/infrastructure/**/*",
+        "mode": "file"
+      },
+      {
+        "type": "domain",
+        "pattern": "*/*/domain/**/*",
+        "mode": "file"
+      },
+      {
+        "type": "application",
+        "pattern": "*/*/application/**/*",
+        "mode": "file"
+      },
+      {
+        "type": "infrastructure",
+        "pattern": "*/*/infrastructure/**/*",
+        "mode": "file"
+      }
+    ],
+    "boundaries/ignore": ["**/*.spec.ts", "**/*.test.ts"]
+  },
+  "rules": {
+    "boundaries/element-types": [
+      "error",
+      {
+        "default": "disallow",
+        "rules": [
+          {
+            "from": ["shared-kernel"],
+            "disallow": ["common-app", "common-infra", "domain", "application", "infrastructure"],
+            "message": "shared-kernel cannot import anything from common or BC-specific code"
+          },
+          {
+            "from": ["domain"],
+            "disallow": ["common-infra", "infrastructure"],
+            "message": "Domain cannot import infrastructure"
+          },
+          {
+            "from": ["application"],
+            "allow": ["shared-kernel", "common-app", "domain"],
+            "disallow": ["common-infra", "infrastructure"],
+            "message": "Application can only use @common/app ports, not infra"
+          },
+          {
+            "from": ["infrastructure"],
+            "allow": ["*"],
+            "message": "Infrastructure can import from anywhere"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Key rules:**
+- ❌ Forbid: `domain/*` → `common/infra` or `common/pres`
+- ❌ Forbid: `shared-kernel/*` → anything in `common/*`
+- ❌ Forbid: `application/*` → `common/infra` (only `@common/app/*` allowed)
+- ✅ Allow: `infrastructure/*` → anything (adapters implement ports)
+
+**Validation:**
+```bash
+# Run linter to check boundaries
+npm run lint
+
+# Example error:
+# src/core/order/domain/entities/order.entity.ts
+#   Import from 'common/infrastructure/prisma' is not allowed
+#   Domain cannot import infrastructure
+```
+
+---
 
 ## File Organization Conventions
 

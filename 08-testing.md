@@ -17,7 +17,7 @@ flowchart TB
     subgraph Integration["Integration Tests (30%)"]
         I1[Repository tests]
         I2[Adapter tests]
-        I3[Real Prisma/DB]
+        I3[Real DB]
     end
 
     subgraph Unit["Unit Tests (60%)"]
