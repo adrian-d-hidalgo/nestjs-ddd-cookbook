@@ -14,3 +14,5 @@
 * [11. Common Pitfalls - Mistakes to Avoid](11-common-pitfalls.md)
 * [12. Execution Flow Diagrams](12-execution-flows.md)
 * [13. Domain Services and Use Cases - Orchestration Patterns](13-domain-services-and-use-cases.md)
+* [14. Advanced Patterns - Production-Grade Event Handling](14-advanced-patterns.md)
+* [15. Implementation Checklist - DDD Compliance Verification](15-implementation-checklist.md)
